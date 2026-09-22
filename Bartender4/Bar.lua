@@ -35,7 +35,7 @@ local Sticky = LibStub("LibSimpleSticky-1.0")
 local LibWin = LibStub("LibWindow-1.1")
 local snapBars = { WorldFrame, UIParent }
 
-local barOnEnter, barOnLeave, barOnDragStart, barOnDragStop, barOnClick, barOnUpdateFunc, barOnAttributeChanged
+local barOnEnter, barOnLeave, barOnDragStart, barOnDragStop, barOnClick, barOnUpdateFunc
 do
 	function barOnEnter(self)
 		if not self:GetParent().isMoving then
@@ -107,16 +107,16 @@ do
 		end
 	end
 
-	function barOnAttributeChanged(self, attribute, value)
-		if attribute == "fade" then
-			if value then
-				self:SetScript("OnUpdate", barOnUpdateFunc)
-				self:ControlFadeOut()
-			else
-				self:SetScript("OnUpdate", nil)
-				self.faded = nil
-				self:SetConfigAlpha()
-			end
+	-- Called from the _onstate-vis snippet. Hooking OnAttributeChanged instead makes the secure
+	-- handler run tainted, and every state snippet on the bar is then refused.
+	function Bar:OnFadeChanged()
+		if self:GetAttribute("fade") then
+			self:SetScript("OnUpdate", barOnUpdateFunc)
+			self:ControlFadeOut()
+		else
+			self:SetScript("OnUpdate", nil)
+			self.faded = nil
+			self:SetConfigAlpha()
 		end
 	end
 end
@@ -137,7 +137,6 @@ function Bartender4.Bar:Create(id, config, name)
 	bar.name = name or id
 	bar.config = config
 	bar:SetMovable(true)
-	bar:HookScript("OnAttributeChanged", barOnAttributeChanged)
 
 	bar:SetWidth(1)
 	bar:SetHeight(1)
@@ -413,9 +412,11 @@ function Bar:InitVisibilityDriver(returnOnly)
 		if newstate == "show" then
 			self:Show()
 			self:SetAttribute("fade", false)
+			self:CallMethod("OnFadeChanged")
 		elseif strsub(newstate, 1, 4) == "fade" then
 			self:Show()
 			self:SetAttribute("fade", (newstate == "fade") and true or strsub(newstate, 6))
+			self:CallMethod("OnFadeChanged")
 		elseif newstate == "hide" then
 			self:Hide()
 		end

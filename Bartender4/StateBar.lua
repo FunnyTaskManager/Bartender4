@@ -202,6 +202,7 @@ end
 
 function StateBar:GetStanceState(stance)
 	local stanceconfig = self.config.states.stance[playerclass]
+	local state
 	if type(stance) == "table" then
 		state = stanceconfig[stance.id]
 	else

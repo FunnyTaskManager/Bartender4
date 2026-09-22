@@ -17,7 +17,7 @@ local specialButtons = {
 local Button = CreateFrame("CheckButton")
 local Button_MT = {__index = Button}
 
-local onEnter, onLeave, onUpdate, onDragUpdate
+local onEnter, onLeave, onUpdate
 
 -- upvalues
 local _G = _G
@@ -65,7 +65,7 @@ function Bartender4.Button:Create(id, parent)
 	-- overwrite some scripts with out customized versions
 	button:SetScript("OnEnter", onEnter)
 	button:SetScript("OnUpdate", onUpdate)
-	button:SetScript("OnDragStart", onDragUpdate)
+	button:SetScript("OnDragStart", nil) -- The secure OnDragStart wrap below inherits the taint of any handler we set here, and a tainted wrap cannot run its snippet; the snippet does the pickup, so leave it nothing to wrap.
 	--button:SetScript("OnReceiveDrag", nil)
 
 	button.icon = _G[("%sIcon"):format(name)]
@@ -192,11 +192,6 @@ function Bartender4.Button:Create(id, parent)
 	return button
 end
 
-function onDragUpdate(self)
-	ActionButton_UpdateState(self)
-	ActionButton_UpdateFlash(self)
-end
-
 function onEnter(self)
 	if not (Bartender4.db.profile.tooltip == "nocombat" and InCombatLockdown()) and Bartender4.db.profile.tooltip ~= "disabled" then
 		self:SetTooltip(self)
@@ -227,7 +222,7 @@ function onUpdate(self, elapsed)
 		self.rangeTimer = self.rangeTimer - elapsed
 		if self.rangeTimer <= 0 then
 			local valid = IsActionInRange(self.action)
-			self.outOfRange = (valid == 0)
+			self.BT4OutOfRange = (valid == 0)
 
 			local oor = Bartender4.db.profile.outofrange
 			if oor == "hotkey" then
@@ -239,7 +234,7 @@ function onUpdate(self, elapsed)
 					hotkey:Hide()
 				end
 
-				if self.outOfRange then
+				if self.BT4OutOfRange then
 					local oorc = Bartender4.db.profile.colors.range
 					hotkey:SetVertexColor(oorc.r, oorc.g, oorc.b)
 				else
@@ -445,7 +440,7 @@ function Button:UpdateUsable()
 	local isUsable, notEnoughMana = IsUsableAction(self.action)
 	local icon = self.icon
 
-	if Bartender4.db.profile.outofrange == "button" and self.outOfRange then
+	if Bartender4.db.profile.outofrange == "button" and self.BT4OutOfRange then
 		local oorc = Bartender4.db.profile.colors.range
 		icon:SetVertexColor(oorc.r, oorc.g, oorc.b)
 	else
@@ -463,7 +458,7 @@ end
 function Button:UpdateRange()
 	if Bartender4.db.profile.outofrange == "none" or not ActionHasRange(self.action) then
 		self.rangeTimer = nil
-		self.outOfRange = nil
+		self.BT4OutOfRange = nil
 	end
 	self.hotkey:SetVertexColor(1.0, 1.0, 1.0)
 	self:UpdateUsable()
