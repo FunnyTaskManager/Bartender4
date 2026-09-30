@@ -14,6 +14,23 @@ local specialButtons = {
 	[132] = { icon = "Interface\\Icons\\Spell_Shadow_SacrificialShield", tooltip = LEAVE_VEHICLE}, -- Vehicle Leave Button
 }
 
+local function GetPossessProxy(action)
+	if not action or type(IsPossessBarVisible) ~= "function" or not IsPossessBarVisible() then
+		return
+	end
+	if GetActionTexture(action) then
+		return
+	end
+	local slots = NUM_POSSESS_SLOTS or 2
+	if action < 121 or action > 120 + slots then
+		return
+	end
+	local texture, name, enabled = GetPossessInfo(action - 120)
+	if enabled and texture then
+		return action - 120, texture, name
+	end
+end
+
 local Button = CreateFrame("CheckButton")
 local Button_MT = {__index = Button}
 
@@ -251,11 +268,20 @@ Bartender4.Button.onUpdate = onUpdate
 
 local function updateIcon(self)
 	if self.action then
+		local possessSlot, possessTexture = GetPossessProxy(self.action)
+		self.possessSlot = possessSlot
 		if specialButtons[self.action] then
 			if not LBF then
 				self.normalTexture:SetTexCoord(0, 0, 0, 0)
 			end
 			self.icon:SetTexture(specialButtons[self.action].icon)
+			self.icon:Show()
+			self:UpdateUsable()
+		elseif possessSlot then
+			if not LBF then
+				self.normalTexture:SetTexCoord(0, 0, 0, 0)
+			end
+			self.icon:SetTexture(possessTexture)
 			self.icon:Show()
 			self:UpdateUsable()
 		elseif not LBF then
@@ -265,6 +291,8 @@ local function updateIcon(self)
 				self.normalTexture:SetTexCoord(-0.15, 1.15, -0.15, 1.17)
 			end
 		end
+	else
+		self.possessSlot = nil
 	end
 end
 
@@ -311,10 +339,17 @@ function Button:RefreshStateAction(state)
 	assert(action, ("No valid action for state %d on button %d of Bar %d"):format(state, self.rid, self.parent.id))
 	self:SetAttribute("action-"..state, action)
 
-	if action > 120 and action <= 126 then
-		self:SetAttribute("clickbutton", _G["VehicleMenuBarActionButton"..tostring(action-120)])
+	local clickbutton
+	local possessSlot = GetPossessProxy(action)
+	if possessSlot then
+		clickbutton = _G["PossessButton"..possessSlot]
+	elseif action > 120 and action <= 126 then
+		clickbutton = _G["VehicleMenuBarActionButton"..tostring(action-120)]
 	elseif action == 132 then
-		self:SetAttribute("clickbutton", PossessButton2)
+		clickbutton = PossessButton2
+	end
+	if not InCombatLockdown() then
+		self:SetAttribute("clickbutton", clickbutton)
 	end
 end
 
@@ -444,7 +479,7 @@ function Button:UpdateUsable()
 		local oorc = Bartender4.db.profile.colors.range
 		icon:SetVertexColor(oorc.r, oorc.g, oorc.b)
 	else
-		if isUsable or specialButtons[self.action] then
+		if isUsable or specialButtons[self.action] or self.possessSlot then
 			icon:SetVertexColor(1.0, 1.0, 1.0)
 		elseif notEnoughMana then
 			local oomc = Bartender4.db.profile.colors.mana
@@ -472,7 +507,15 @@ function Button:SetTooltip()
 		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 	end
 
-	if specialButtons[self.action] then
+	if self.possessSlot then
+		if GameTooltip.SetPossession then
+			GameTooltip:SetPossession(self.possessSlot)
+		else
+			local _, name = GetPossessInfo(self.possessSlot)
+			GameTooltip:SetText(name or "")
+		end
+		self.UpdateTooltip = self.SetTooltip
+	elseif specialButtons[self.action] then
 		GameTooltip:SetText(specialButtons[self.action].tooltip)
 		self.UpdateTooltip = self.SetTooltip
 	else
@@ -516,3 +559,18 @@ function Button:ClearSetPoint(...)
 	self:ClearAllPoints()
 	self:SetPoint(...)
 end
+
+local possessWatcher = CreateFrame("Frame")
+possessWatcher:RegisterEvent("UPDATE_BONUS_ACTIONBAR")
+possessWatcher:RegisterEvent("UPDATE_POSSESS_BAR")
+possessWatcher:SetScript("OnEvent", function()
+	for i = 1, 120 do
+		local button = _G["BT4Button"..i]
+		if button and button.BT4init and button.action and button.action >= 121 then
+			updateIcon(button)
+			if not InCombatLockdown() then
+				button:RefreshStateAction()
+			end
+		end
+	end
+end)
