@@ -34,7 +34,7 @@ end
 local Button = CreateFrame("CheckButton")
 local Button_MT = {__index = Button}
 
-local onEnter, onLeave, onUpdate
+local onEnter, onUpdate
 
 -- upvalues
 local _G = _G
@@ -76,14 +76,10 @@ function Bartender4.Button:Create(id, parent)
 	button.normalTexture:SetPoint("CENTER", 0, -1)
 	button.normalTexture:Show()
 
-
-	--button:SetFrameStrata("MEDIUM")
-
 	-- overwrite some scripts with out customized versions
 	button:SetScript("OnEnter", onEnter)
 	button:SetScript("OnUpdate", onUpdate)
 	button:SetScript("OnDragStart", nil) -- The secure OnDragStart wrap below inherits the taint of any handler we set here, and a tainted wrap cannot run its snippet; the snippet does the pickup, so leave it nothing to wrap.
-	--button:SetScript("OnReceiveDrag", nil)
 
 	button.icon = _G[("%sIcon"):format(name)]
 	button.border = _G[("%sBorder"):format(name)]
@@ -107,13 +103,21 @@ function Bartender4.Button:Create(id, parent)
 		if action and (not self:GetAttribute("buttonlock") or IsModifiedClick("PICKUPACTION")) then
 			return "action", action
 		end
-	]], [[
-		control:RunFor(self, self:GetAttribute("UpdateAutoAssist"))
 	]])
 
-	parent:WrapScript(button, "OnReceiveDrag", [[]], [[
-		control:RunFor(self, self:GetAttribute("UpdateAutoAssist"))
-	]])
+	if Bartender4.IsDF then
+		parent:WrapScript(button, "OnAttributeChanged", [[
+			if name ~= "showgrid" and name ~= "action" and name ~= "statehidden" then return end
+			local action = self:GetAttribute("action")
+			if self:GetAttribute("statehidden") then
+				self:Hide(true)
+			elseif self:GetAttribute("showgrid") > 0 or HasAction(action) or (action > 120 and action <= 122) then
+				self:Show(true)
+			else
+				self:Hide(true)
+			end
+		]])
+	end
 
 	button:SetAttribute("UpdateAutoAssist", [[
 		self:SetAttribute("assisttype", nil)
@@ -144,7 +148,7 @@ function Bartender4.Button:Create(id, parent)
 		if action == 132 then
 			self:SetAttribute("type", "click")
 			if not self:GetAttribute("isSpecial") then
-				self:SetAttribute("showgrid", self:GetAttribute("showgrid") + 1)
+				self:SetAttribute("showgrid", self:GetAttribute("showgrid") + 8)
 				self:SetAttribute("isSpecial", true)
 			end
 		else
@@ -155,7 +159,7 @@ function Bartender4.Button:Create(id, parent)
 			end
 			if self:GetAttribute("isSpecial") then
 				self:SetAttribute("isSpecial", nil)
-				self:SetAttribute("showgrid", max(0, self:GetAttribute("showgrid") - 1))
+				self:SetAttribute("showgrid", max(0, self:GetAttribute("showgrid") - 8))
 			end
 		end
 		self:SetAttribute("action", action)
@@ -166,7 +170,6 @@ function Bartender4.Button:Create(id, parent)
 		else
 			self:SetAttribute("unit", nil)
 		end
-		G_state = message
 	]])
 
 	button:SetAttribute('_childupdate-assist-help', [[
@@ -194,7 +197,6 @@ function Bartender4.Button:Create(id, parent)
 		button:ShowGrid()
 	end
 
-	--self:UpdateAction(true)
 	button:UpdateOnClickDown()
 	button:UpdateHotkeys()
 	button:UpdateUsable()
@@ -239,7 +241,9 @@ function onUpdate(self, elapsed)
 		self.rangeTimer = self.rangeTimer - elapsed
 		if self.rangeTimer <= 0 then
 			local valid = IsActionInRange(self.action)
-			self.BT4OutOfRange = (valid == 0)
+			local outOfRange = (valid == 0)
+			local changed = outOfRange ~= self.BT4OutOfRange
+			self.BT4OutOfRange = outOfRange
 
 			local oor = Bartender4.db.profile.outofrange
 			if oor == "hotkey" then
@@ -257,7 +261,7 @@ function onUpdate(self, elapsed)
 				else
 					hotkey:SetVertexColor(1.0, 1.0, 1.0)
 				end
-			elseif oor == "button" then
+			elseif oor == "button" and changed then
 				self:UpdateUsable()
 			end
 			self.rangeTimer = TOOLTIP_UPDATE_TIME
@@ -296,14 +300,31 @@ local function updateIcon(self)
 	end
 end
 
+local function updateShown(self)
+	if self:GetAttribute("statehidden") then
+		self:Hide()
+	elseif self:GetAttribute("showgrid") > 0 or HasAction(self.action) or self.possessSlot then
+		self:Show()
+	else
+		self:Hide()
+	end
+end
+
 local function updateFunc(self)
 	local parent = self:GetParent()
 	if not self.BT4init or not parent.BT4BarType then return end
 	self:UpdateRange()
 	updateIcon(self)
+	self:SetNormalTexture(GetActionTexture(self.action) and "Interface\\Buttons\\UI-Quickslot2" or "Interface\\Buttons\\UI-Quickslot")
 
-	if self.SecureInit and not InCombatLockdown() then
-		local parent = self:GetParent()
+	if not InCombatLockdown() then
+		updateShown(self)
+		if self.action > 120 then
+			self:RefreshStateAction()
+		end
+	end
+
+	if self.SecureInit and not InCombatLockdown() and self:GetAttribute("autoassist") then
 		parent:SetFrameRef("upd", self)
 		parent:Execute([[
 			local frame = self:GetFrameRef("upd")
@@ -314,12 +335,29 @@ end
 
 hooksecurefunc("ActionButton_Update", updateFunc)
 
+if ActionBarButtonUpdateFrame then
+	hooksecurefunc("ActionButton_CheckNeedsUpdate", function(self)
+		if self.BT4init and self.needsUpdate then
+			ActionBarButtonUpdateFrame:UnregisterFrame(self)
+		end
+	end)
+
+	hooksecurefunc(ActionBarButtonEventsFrame, "ForEachFrame", function(_, func)
+		if func ~= ActionButton_UpdateOverlayGlow then return end
+		for i = 1, 120 do
+			local button = _G["BT4Button"..i]
+			if button and button.action then
+				func(button)
+			end
+		end
+	end)
+end
+
 Button.SetRealNormalTexture = Button.SetNormalTexture
 function Button:SetNormalTexture(...)
 	self.normalTexture:SetTexture(...)
 end
 
-Button.GetRealNormalTexture = Button.GetNormalTexture
 function Button:GetNormalTexture()
 	return self.normalTexture
 end
@@ -336,7 +374,7 @@ end
 function Button:RefreshStateAction(state)
 	local state = tonumber(state or self:GetAttribute("state")) or 0
 	local action = self.stateactions[state]
-	assert(action, ("No valid action for state %d on button %d of Bar %d"):format(state, self.rid, self.parent.id))
+	if not action then return end
 	self:SetAttribute("action-"..state, action)
 
 	local clickbutton
@@ -371,7 +409,7 @@ function Button:Update()
 end
 
 function Button:UpdateAction(force)
-	ActionButton_UpdateAction(self)
+	ActionButton_UpdateAction(self, force)
 end
 
 function Button:ToggleButtonElements()
